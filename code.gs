@@ -2,10 +2,22 @@ const SHEET_ID = '16fL0ksNgjmDHXchBnV3Axkrm3OvleT5stC70B9aC8B4';
 const HOUSEHOLD_TAB = 'Household Datasets';
 const INDUSTRIAL_TAB = 'Industrial Datasets';
 
-function doGet() {
-  return HtmlService.createHtmlOutputFromFile('Index')
-    .setTitle('Narration - Atlas Video Performance')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+function getData() {
+  const ss = SpreadsheetApp.openById(16fL0ksNgjmDHXchBnV3Axkrm3OvleT5stC70B9aC8B4);
+
+  const rows = []
+    .concat(readTab_(
+      ss, HOUSEHOLD_TAB, 'Household',
+      'File name', 'Video Duration', false
+    ))
+    .concat(readTab_(
+      ss, INDUSTRIAL_TAB, 'Industrial',
+      'Session', 'Duration (min)', true
+    ));
+
+  return {
+    rows: rows
+  };
 }
 
 // Re-reads both tabs on every call. Columns are found by heading name, never by letter.
