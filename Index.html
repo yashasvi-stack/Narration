@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Narration - Atlas Video Performance</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1b2a41;--paper:#edf1f5;--panel:#fff;--teal:#0e7c7b;--amber:#e09f3e;--line:#d5dde6;--red:#b23a48;--mute:#5f6f84}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:'Instrument Sans',system-ui,sans-serif;font-size:14px}
+header{background:var(--ink);color:#fff;padding:18px 24px}
+header h1{margin:0;font-size:22px;font-weight:700;letter-spacing:.2px}
+header p{margin:4px 0 0;color:#b9c6d8}
+main{padding:18px 24px;max-width:1400px;margin:0 auto}
+.filters{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
+.filters label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mute);font-weight:500}
+select,input,button{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink)}
+button{cursor:pointer;font-weight:600}
+button.primary{background:var(--teal);border-color:var(--teal);color:#fff}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--amber);outline-offset:1px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0}
+.kpi{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--teal);border-radius:8px;padding:12px 14px}
+.kpi.warn{border-left-color:var(--amber)}
+.kpi b{display:block;font-size:26px;font-variant-numeric:tabular-nums;margin-top:4px}
+.kpi span{color:var(--mute);font-size:12px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:16px}
+section>div.bar{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line)}
+section h2{margin:0;font-size:16px}
+section>div.bar{flex-wrap:wrap;gap:10px}
+.sf{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.sf label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--mute);font-weight:500}
+.sf input,.sf button{padding:5px 8px}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:8px 12px;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
+th{background:#f6f8fb;font-weight:600;color:var(--mute)}
+td:first-child,th:first-child{text-align:left}
+tbody tr:hover{background:#f6f8fb}
+.good{color:var(--teal);font-weight:700}.bad{color:var(--red);font-weight:700}
+.empty,.err{padding:20px;color:var(--mute)}.err{color:var(--red)}
+footer{text-align:right;padding:0 24px 24px;max-width:1400px;margin:0 auto}
+footer a{color:var(--teal);font-weight:600}
+@media(max-width:600px){main{padding:12px}header{padding:14px 12px}}
+</style>
+</head>
+<body>
+<header><h1>Narration - Atlas Video Performance</h1><p>Household and Industrial datasets, by POC, date and category</p></header>
+<main>
+  <div class="filters">
+    <label>Dataset<select id="fDs"><option value="All">Both</option><option>Household</option><option>Industrial</option></select></label>
+    <label>POC<select id="fPoc"></select></label>
+    <label>Category<select id="fCat"></select></label>
+    <button id="bReset">Reset</button>
+    <button id="bRefresh" class="primary">Refresh data</button>
+  </div>
+
+  <div id="msg" class="empty">Loading data…</div>
+  <div id="app" hidden>
+    <div class="kpis" id="kpis"></div>
+
+    <section><div class="bar"><h2>POC Daily Performance</h2><button data-copy="tPoc">Copy</button></div>
+      <div class="scroll"><table id="tPoc"></table></div></section>
+
+    <section><div class="bar"><h2>POC-wise Count</h2>
+      <div class="sf"><label>Date<input type="date" id="mDate"></label><label>Week<input type="week" id="mWeek"></label><label>Month<input type="month" id="mMonth"></label><button id="mAll">All dates</button><button data-copy="tMat">Copy</button></div></div>
+      <div class="scroll"><table id="tMat"></table></div></section>
+
+    <section><div class="bar"><h2>Category summary</h2>
+      <div class="sf"><label>Date<input type="date" id="cDate"></label><label>Week<input type="week" id="cWeek"></label><label>Month<input type="month" id="cMonth"></label><button id="cAll">All dates</button><button data-copy="tCat">Copy</button></div></div>
+      <div class="scroll"><table id="tCat"></table></div></section>
+  </div>
+</main>
+<footer><a id="src" href="https://docs.google.com/spreadsheets/d/16fL0ksNgjmDHXchBnV3Axkrm3OvleT5stC70B9aC8B4/edit" target="_blank" rel="noopener">Open source sheet</a></footer>
+
+<script>
+const TARGET = 3600; // 1 hour per POC per active day
+let ROWS = [], ALL = [], defaulted = false;
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pad = n => ('0' + n).slice(-2);
+const hms = s => { s = Math.round(s); return pad(Math.floor(s / 3600)) + ':' + pad(Math.floor(s % 3600 / 60)) + ':' + pad(s % 60); };
+const us = d => d.slice(5, 7) + '/' + d.slice(8, 10) + '/' + d.slice(0, 4);
+
+function weekRange(w) {
+  const m = w.match(/^(\d{4})-W(\d{2})$/); if (!m) return null;
+  const jan4 = new Date(Date.UTC(+m[1], 0, 4));
+  const mon = jan4.getTime() - ((jan4.getUTCDay() + 6) % 7) * 864e5 + (+m[2] - 1) * 7 * 864e5;
+  return [new Date(mon).toISOString().slice(0, 10), new Date(mon + 6 * 864e5).toISOString().slice(0, 10)];
+}
+
+function load() {
+  $('msg').hidden = false; $('msg').className = 'empty'; $('msg').textContent = 'Loading data…'; $('app').hidden = true;
+  google.script.run.withSuccessHandler(r => {
+    ALL = r.rows; ROWS = ALL.filter(x => x.poc && x.date); if (r.sheetUrl) $('src').href = r.sheetUrl;
+    fillSelect('fPoc', 'All POCs', ROWS.map(x => x.poc));
+    fillSelect('fCat', 'All categories', ALL.map(x => x.cat));
+    if (!defaulted && ROWS.length) { $('mWeek').value = isoWeek(ROWS.map(x => x.date).sort().pop()); defaulted = true; }
+    $('msg').hidden = true; $('app').hidden = false; render();
+  }).withFailureHandler(e => { $('msg').className = 'err'; $('msg').textContent = 'Could not load data: ' + e.message; }).getData();
+}
+
+function fillSelect(id, all, vals) {
+  const el = $(id), cur = el.value;
+  const u = Array.from(new Set(vals)).sort((a, b) => a.localeCompare(b));
+  el.innerHTML = '<option value="">' + all + '</option>' + u.map(v => '<option>' + esc(v) + '</option>').join('');
+  if (u.includes(cur)) el.value = cur;
+}
+
+function isoWeek(iso) {
+  const q = iso.split('-'), d = new Date(Date.UTC(+q[0], +q[1] - 1, +q[2]));
+  const day = (d.getUTCDay() + 6) % 7; d.setUTCDate(d.getUTCDate() - day + 3);
+  const y = d.getUTCFullYear(), j4 = new Date(Date.UTC(y, 0, 4));
+  const wk = 1 + Math.round(((d - j4) / 864e5 - 3 + ((j4.getUTCDay() + 6) % 7)) / 7);
+  return y + '-W' + pad(wk);
+}
+
+// Dataset / POC / Category filters
+function base(rows) {
+  const ds = $('fDs').value, poc = $('fPoc').value, cat = $('fCat').value;
+  return rows.filter(r => (ds === 'All' || r.ds === ds) && (!poc || r.poc === poc) && (!cat || r.cat === cat));
+}
+
+// Section date filter: p = 'm' (POC-wise Count) or 'c' (Category summary); empty = all dates
+function inRange(rows, p) {
+  let lo = '', hi = '9999';
+  if ($(p + 'Date').value) lo = hi = $(p + 'Date').value;
+  else if ($(p + 'Week').value) { const r = weekRange($(p + 'Week').value); if (r) { lo = r[0]; hi = r[1]; } }
+  else if ($(p + 'Month').value) { lo = $(p + 'Month').value + '-01'; hi = $(p + 'Month').value + '-31'; }
+  return rows.filter(r => r.date >= lo && r.date <= hi);
+}
+
+function sum(a, f) { return a.reduce((t, x) => t + f(x), 0); }
+
+function render() {
+  const ds = $('fDs').value;
+  const d = base(ROWS);            // assigned rows: POC tables
+  const k = base(ALL);             // every row in the sheet: Completed / Pending / Hours
+  const done = k.filter(r => r.done);
+  const H = ALL.filter(r => r.ds === 'Household'), I = ALL.filter(r => r.ds === 'Industrial');
+  $('kpis').innerHTML = [
+    ['Distinct Household Files', H.length, ''],
+    ['Unique Industrial Sessions', I.length, ''],
+    ['Total video duration', hms(sum(ALL, r => r.dur)), ''],
+    ['Completed', done.length, ''],
+    ['Pending', k.length - done.length, 'warn'],
+    ['Total Hours Completed', hms(sum(done, r => r.dur)), '']
+  ].map(x => '<div class="kpi ' + x[2] + '"><span>' + x[0] + '</span><b>' + x[1] + '</b></div>').join('');
+
+  // POC performance
+  const g = {};
+  d.forEach(r => {
+    const o = g[r.poc] = g[r.poc] || { n: 0, c: 0, dur: 0, cd: 0, tk: 0, days: new Set() };
+    o.n++; o.dur += r.dur; o.days.add(r.date);
+    if (r.done) { o.c++; o.cd += r.dur; o.tk += r.taken; }
+  });
+  const pocs = Object.keys(g).sort((a, b) => g[b].cd - g[a].cd);
+  $('tPoc').innerHTML = pocs.length ? '<thead><tr><th>POC</th><th>Assigned</th><th>Completed</th><th>Pending</th><th>Total duration</th><th>Completed duration</th><th>Pending duration</th><th>Time taken</th><th>Target</th><th>Achieved %</th></tr></thead><tbody>' +
+    pocs.map(p => { const o = g[p], t = o.days.size * TARGET, pc = t ? o.cd / t * 100 : 0;
+      return '<tr><td>' + esc(p) + '</td><td>' + o.n + '</td><td>' + o.c + '</td><td>' + (o.n - o.c) + '</td><td>' + hms(o.dur) + '</td><td>' + hms(o.cd) + '</td><td>' + hms(o.dur - o.cd) + '</td><td>' + hms(o.tk) + '</td><td>' + hms(t) + '</td><td class="' + (pc >= 100 ? 'good' : 'bad') + '">' + pc.toFixed(1) + '%</td></tr>'; }).join('') + '</tbody>'
+    : '<tbody><tr><td class="empty">No data for the selected filters.</td></tr></tbody>';
+
+  // POC x date matrix
+  const dm = inRange(d, 'm');
+  const gm = {}, gd = {}; dm.forEach(r => { gm[r.poc] = (gm[r.poc] || 0) + 1; if (r.done) gd[r.poc] = (gd[r.poc] || 0) + r.dur; });
+  const mpocs = Object.keys(gm).sort((a, b) => gm[b] - gm[a]);
+  const dates = Array.from(new Set(dm.map(r => r.date))).sort();
+  const mx = {};
+  dm.forEach(r => { (mx[r.poc] = mx[r.poc] || {})[r.date] = (mx[r.poc][r.date] || 0) + 1; });
+  $('tMat').innerHTML = mpocs.length ? '<thead><tr><th>POC</th>' + dates.map(x => '<th>' + us(x) + '</th>').join('') + '<th>Total</th><th>Completed duration</th></tr></thead><tbody>' +
+    mpocs.map(p => '<tr><td>' + esc(p) + '</td>' + dates.map(x => '<td>' + (mx[p][x] || '') + '</td>').join('') + '<td><b>' + gm[p] + '</b></td><td>' + hms(gd[p] || 0) + '</td></tr>').join('') +
+    '<tr><td><b>Total</b></td>' + dates.map(x => '<td><b>' + sum(mpocs, p => mx[p][x] || 0) + '</b></td>').join('') + '<td><b>' + dm.length + '</b></td><td><b>' + hms(sum(dm.filter(r => r.done), r => r.dur)) + '</b></td></tr></tbody>'
+    : '<tbody><tr><td class="empty">No data for the selected filters.</td></tr></tbody>';
+
+  // Category summary
+  const cg = {};
+  inRange(d, 'c').forEach(r => {
+    const k = r.ds + '|' + r.cat, o = cg[k] = cg[k] || { ds: r.ds, cat: r.cat, n: 0, c: 0, dur: 0 };
+    o.n++; o.dur += r.dur; if (r.done) o.c++;
+  });
+  const ck = Object.keys(cg).sort();
+  $('tCat').innerHTML = ck.length ? '<thead><tr><th>Dataset</th><th>Category</th><th>Unique items</th><th>Completed</th><th>Pending</th><th>Total duration</th></tr></thead><tbody>' +
+    ck.map(k => { const o = cg[k]; return '<tr><td>' + o.ds + '</td><td>' + esc(o.cat) + '</td><td>' + o.n + '</td><td>' + o.c + '</td><td>' + (o.n - o.c) + '</td><td>' + hms(o.dur) + '</td></tr>'; }).join('') + '</tbody>'
+    : '<tbody><tr><td class="empty">No data for the selected filters.</td></tr></tbody>';
+}
+
+['fDs', 'fPoc', 'fCat'].forEach(id => $(id).addEventListener('change', render));
+// within a section, picking one of Date / Week / Month clears the other two
+['m', 'c'].forEach(p => {
+  ['Date', 'Week', 'Month'].forEach(t => $(p + t).addEventListener('change', () => {
+    if ($(p + t).value) ['Date', 'Week', 'Month'].filter(x => x !== t).forEach(x => $(p + x).value = '');
+    render();
+  }));
+  $(p + 'All').addEventListener('click', () => { ['Date', 'Week', 'Month'].forEach(x => $(p + x).value = ''); render(); });
+});
+$('bRefresh').addEventListener('click', load);
+$('bReset').addEventListener('click', () => {
+  ['mDate', 'mMonth', 'cDate', 'cWeek', 'cMonth'].forEach(id => $(id).value = '');
+  $('mWeek').value = ROWS.length ? isoWeek(ROWS.map(x => x.date).sort().pop()) : '';
+  $('fDs').value = 'All'; $('fPoc').value = ''; $('fCat').value = '';
+  render();
+});
+document.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => {
+  const t = Array.from($(b.dataset.copy).rows).map(r => Array.from(r.cells).map(c => c.textContent).join('\t')).join('\n');
+  const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+  const o = b.textContent; b.textContent = 'Copied'; setTimeout(() => b.textContent = o, 1200);
+}));
+load();
+</script>
+</body>
+</html>
