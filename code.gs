@@ -3,7 +3,7 @@ const HOUSEHOLD_TAB = 'Household Datasets';
 const INDUSTRIAL_TAB = 'Industrial Datasets';
 
 function getData() {
-  const ss = SpreadsheetApp.openById(16fL0ksNgjmDHXchBnV3Axkrm3OvleT5stC70B9aC8B4);
+  const ss = SpreadsheetApp.openById(SHEET_ID);
 
   const rows = []
     .concat(readTab_(
